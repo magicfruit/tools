@@ -1,0 +1,134 @@
+<!DOCTYPE HTML>
+<html class="no-js bg" lang="zh-cmn-Hans">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <meta charset="UTF-8">
+    <!--IE 8浏览器的页面渲染方式-->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1">
+    <!--默认使用极速内核：针对国内浏览器产商-->
+    <meta name="renderer" content="webkit">
+    <!--chrome Android 地址栏颜色-->
+	<meta name="theme-color" content="#3a3f51" />
+	<meta http-equiv="x-dns-prefetch-control" content="on">
+	<title>chromium浏览器伪造sni工具网页版 - 技术分享</title>
+   <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+</head>
+
+<body id="body" class="fix-padding">
+<div>SNI伪装列表：
+    <br/>
+    <textarea id="in" rows="6" style="width: 100%;"></textarea>
+</div>
+<button id="fetchButton" class="btn m-b-xs btn-info btn-rounded" onmousedown="$('#err, #out').html('');">抓取数据</button>
+
+<button id="processButton" class="btn m-b-xs btn-info btn-rounded" onmousedown="$('#err, #out').html('');">处理数据</button>
+
+<div>执行结果：
+    <br/>
+    <textarea id="out" rows="15" style="width: 100%;" readonly="readonly"></textarea>
+</div>
+
+<script>
+    const CealHostRulesDict = {};
+    const jsonUrl = 'https://raw.githubusercontent.com/SpaceTimee/Cealing-Host/refs/heads/main/Cealing-Host.json';
+    function processData(inputValue) {
+        const cealHostName = "CYFM";
+
+        try {
+            CealHostRulesDict[cealHostName] = [];
+
+            let cealHostRulesFragments = '';
+            let cealHostResolverRulesFragments = '';
+            let nullSniNum = 0;
+            inputValue.forEach(cealHostRule => {
+                let cealHostDomainPairs = [];
+                const cealHostSni = cealHostRule[1] === null || !cealHostRule[1].trim() ? 
+                    `${cealHostName}${CealHostRulesDict[cealHostName].length}` : cealHostRule[1].trim();
+                const cealHostIp = cealHostRule[2] && cealHostRule[2].trim() ? cealHostRule[2].trim() : "127.0.0.1";
+
+                cealHostRule[0].forEach(cealHostDomain => {
+                    const domainString = cealHostDomain.toString().trim();
+                    if (domainString.startsWith('^') || domainString.startsWith('#') || domainString.startsWith('$')) return;
+
+                    const cealHostDomainPair = domainString.split('^', 2);
+                    cealHostDomainPairs.push([cealHostDomainPair[0].trim(), cealHostDomainPair[1]?.trim() || '']);
+                });
+
+                CealHostRulesDict[cealHostName].push({ cealHostDomainPairs, cealHostSni, cealHostIp });
+            });
+
+            CealHostRulesDict[cealHostName].forEach(({ cealHostDomainPairs, cealHostSni, cealHostIp }) => {
+                const cealHostSniWithoutNull = cealHostSni || `${cealHostName}${++nullSniNum}`;
+                let isValidCealHostDomainExist = false;
+
+                cealHostDomainPairs.forEach(([cealHostIncludeDomain, cealHostExcludeDomain]) => {
+                    if (cealHostIncludeDomain.startsWith('$')) return;
+
+                    cealHostRulesFragments += `MAP ${cealHostIncludeDomain.replace('#', '')} ${cealHostSniWithoutNull}`;
+                    if (cealHostExcludeDomain) {
+                        cealHostRulesFragments += `,EXCLUDE ${cealHostExcludeDomain}`;
+                    }
+                    cealHostRulesFragments += ',';
+                    isValidCealHostDomainExist = true;
+                });
+
+                if (isValidCealHostDomainExist) {
+                    cealHostResolverRulesFragments += `MAP ${cealHostSniWithoutNull} ${cealHostIp},`;
+                }
+            });
+
+            const cealArgs = ` --host-rules="${cealHostRulesFragments.trimEnd(',')}" --host-resolver-rules="${cealHostResolverRulesFragments.trimEnd(',')}" --test-type --ignore-certificate-errors`;
+
+            return cealArgs; 
+
+        } catch (error) {
+            console.error("处理过程中出错：", error);
+            $('#err').text("处理数据时出错：" + error.message); 
+            return null;  
+        }
+    }
+
+    function fetchData() {
+        $('#err').empty(); 
+
+        fetch(jsonUrl)
+            .then(response => response.text())
+            .then(data => {
+                $('#in').val(data);
+            })
+            .catch(error => {
+                console.error("加载 JSON 数据时出错：", error);
+                $('#err').text("抓取数据失败！可能是网络问题。" + error.message);
+            });
+    }
+
+    function processDataFromin() {
+        $('#err').empty(); 
+
+        try {
+            const inputValue = JSON.parse($('#in').val());
+            const processedData = processData(inputValue); 
+            if (processedData) {
+                $('#out').val(processedData); 
+            }
+        } catch (error) {
+            console.error("输入数据解析时出错：", error);
+            $('#err').text("输入数据解析失败：" + error.message); 
+        }
+    }
+
+    window.onload = function() {
+        const googleip = [ "2.188.214.157", "188.132.183.152", "49.12.230.233", "209.151.148.106", "82.118.16.109", "185.217.5.3", "185.24.219.130" ];
+        const randomIp = googleip[Math.floor(Math.random() * googleip.length)];
+        const defaultData =`[[["*google*","*youtube.com","*.ggpht.com","i.ytimg.com"],"g.cn","CYFM"]]`;
+        const modifiedData = defaultData.replace('"CYFM"', `"${randomIp}"`);
+        $('#in').val(modifiedData);
+        $('#out').val(processData(JSON.parse(modifiedData)));
+    }
+
+    $('#fetchButton').on('click', fetchData); 
+    $('#processButton').on('click', processDataFromin);
+</script>
+
+</body>
+</html>
